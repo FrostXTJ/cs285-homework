@@ -161,11 +161,12 @@ class RL_Trainer(object):
             if isinstance(self.agent, MBPOAgent):
                 for _ in range(self.sac_params['n_iter']):
                     if self.params['mbpo_rollout_length'] > 0:
-                        # TODO(Q6): Collect trajectory of length self.params['mbpo_rollout_length'] from the 
+                        # DONE(Q6): Collect trajectory of length self.params['mbpo_rollout_length'] from the 
                         # learned dynamics model. Add this trajectory to the correct replay buffer.
                         # HINT: Look at collect_model_trajectory and add_to_replay_buffer from MBPOAgent.
                         # HINT: Use the from_model argument to ensure the paths are added to the correct buffer.
-                        pass
+                        paths = self.agent.collect_model_trajectory(self.params['mbpo_rollout_length'])
+                        self.agent.add_to_replay_buffer(paths, from_model=True)
                     # train the SAC agent
                     self.train_sac_agent()
 
@@ -196,21 +197,71 @@ class RL_Trainer(object):
             envsteps_this_batch: the sum over the numbers of environment steps in paths
             train_video_paths: paths which also contain videos for visualization purposes
         """
-        # TODO: get this from previous HW
+        # DONE: get this from previous HW
+
+        # DONE decide whether to load training data or use the current policy to collect more data
+        # HINT: depending on if it's the first iteration or not, decide whether to either
+                # (1) load the data. In this case you can directly return as follows
+                # ``` return loaded_paths, 0, None ```
+
+                # (2) collect `self.params['batch_size']` transitions
+
+        # DONE collect `batch_size` samples to be used for training
+        # HINT1: use sample_trajectories from utils
+        # HINT2: you want each of these collected rollouts to be of length self.params['ep_len']
+        print("\nCollecting data to be used for training...")
+
+        # First iteration, just use the expert data as the training data.
+        if itr == 0 and initial_expertdata is not None:
+          with open(initial_expertdata, 'rb') as f:
+            paths = pickle.load(f)
+            return paths, 0, None
+
+        # For later iterations, collect batch_size samples.
+        paths, envsteps_this_batch = utils.sample_trajectories(self.env, collect_policy, self.params['batch_size'], self.params['ep_len'], False)
+
+        # collect more rollouts with the same policy, to be saved as videos in tensorboard
+        # note: here, we collect MAX_NVIDEO rollouts, each of length MAX_VIDEO_LEN
+        train_video_paths = None
+
+        ## log_video attribute is not declared in this assignment
+        # if self.log_video:
+        #     print('\nCollecting train rollouts to be used for saving videos...')
+        #     ## DONE look in utils and implement sample_n_trajectories
+        #     train_video_paths = utils.sample_n_trajectories(self.env, collect_policy, MAX_NVIDEO, MAX_VIDEO_LEN, True)
 
         return paths, envsteps_this_batch, train_video_paths
 
     def train_agent(self):
-        # TODO: get this from previous HW
-        pass
+        # DONE: get this from previous HW
+        #print('\nTraining agent using sampled data from replay buffer...')
+        all_logs = []
+        for train_step in range(self.params['num_agent_train_steps_per_iter']):
+
+            # DONE sample some data from the data buffer
+            # HINT1: use the agent's sample function
+            # HINT2: how much data = self.params['train_batch_size']
+            ob_batch, ac_batch, re_batch, next_ob_batch, terminal_batch = self.agent.sample(self.params['train_batch_size'])
+            
+            # DONE use the sampled data to train an agent
+            # HINT: use the agent's train function
+            # HINT: keep the agent's training log for debugging
+            train_log = self.agent.train(ob_batch, ac_batch, re_batch, next_ob_batch, terminal_batch)
+            all_logs.append(train_log)
+        return all_logs
 
     def train_sac_agent(self):
-        # TODO: Train the SAC component of the MBPO agent.
+        # DONE: Train the SAC component of the MBPO agent.
         # For self.sac_params['num_agent_train_steps_per_iter']:
         # 1) sample a batch of data of size self.sac_params['train_batch_size'] with self.agent.sample_sac
         # 2) train the SAC agent self.agent.train_sac
         # HINT: This will look similar to train_agent above.
-        pass
+        all_logs = []
+        for train_step in range(self.sac_params['num_agent_train_steps_per_iter']):
+            ob_batch, ac_batch, re_batch, next_ob_batch, terminal_batch = self.agent.sample_sac(self.params['train_batch_size'])
+            train_log = self.agent.train_sac(ob_batch, ac_batch, re_batch, next_ob_batch, terminal_batch)
+            all_logs.append(train_log)
+        return all_logs
 
     ####################################
     ####################################
